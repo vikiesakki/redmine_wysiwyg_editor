@@ -4,9 +4,7 @@ if content_for(:header_tags).present? &&
     (@project.nil? || @project.identifier.blank? ||
      User.current.allowed_to?(:use_visual_editor, @project))
   content_for :header_tags do %>
-    <%= tinymce_preinit %>
-    <%= javascript_include_tag('tinymce/tinymce') %>
-    <%= javascript_include_tag('tinymce/rails') %>
+    <%= javascript_include_tag('tinymce/tinymce.min.js', plugin: 'redmine_wysiwyg_editor') %>
     <%
     formatting = Setting.text_formatting
     if formatting == 'textile' %>
@@ -16,7 +14,7 @@ if content_for(:header_tags).present? &&
       <%= javascript_include_tag('turndown-plugin-gfm.js', plugin: 'redmine_wysiwyg_editor') %>
     <% end %>
     <%= javascript_include_tag('RedmineFormatPlugin.js', plugin: 'redmine_wysiwyg_editor') %>
-    <%= javascript_include_tag('RedmineWysiwygEditor.js', plugin: 'redmine_wysiwyg_editor') %>
+    <%= javascript_include_tag('redmine_wysiwyg_editor.js', plugin: 'redmine_wysiwyg_editor') %>
     <%= stylesheet_link_tag('redmine_wysiwyg_editor.css', plugin: 'redmine_wysiwyg_editor') %>
     <%
     t = @issue || @page || @news || @document || @topic || nil
@@ -51,11 +49,26 @@ if content_for(:header_tags).present? &&
     <script>
 class RedmineWysiwygEditorManager {
   editors = [];
+  retryTimer = null;
 
   update() {
+    if (typeof tinymce === 'undefined' || typeof RedmineWysiwygEditor === 'undefined') {
+      this.scheduleRetry();
+      return;
+    }
+
     this.editors = $('.jstEditor').map((index, element) => {
       return this.find(element) || initRedmineWysiwygEditor(element);
     }).get();
+  }
+
+  scheduleRetry() {
+    if (this.retryTimer) return;
+
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.update();
+    }, 100);
   }
 
   find(element) {
@@ -64,6 +77,10 @@ class RedmineWysiwygEditorManager {
 }
 
 function initRedmineWysiwygEditor(element) {
+  if (typeof tinymce === 'undefined' || typeof RedmineWysiwygEditor === 'undefined') {
+    return null;
+  }
+
   var setVisible = function() {
     // Fixed for IE 11
     const ua = navigator.userAgent;
@@ -91,10 +108,10 @@ function initRedmineWysiwygEditor(element) {
     var attachments = <%= raw attachments.to_json %>;
 
     $('.attachments_fields span, #attachments_fields span').each(function() {
-      var token = $(this).find('input.token').val();
+      var token = $(element).find('input.token').val();
 
       if (token) {
-        var name = $(this).find('input.filename').val();
+        var name = $(element).find('input.filename').val();
         var m = token.match(/^(\d+)\./);
 
         attachments.push({id: parseInt(m[1]), name: name});
@@ -131,22 +148,28 @@ function initRedmineWysiwygEditor(element) {
     var replace = ISSUE_TEMPLATE.prototype.replaceTemplateValue;
 
     ISSUE_TEMPLATE.prototype.replaceTemplateValue = function(obj) {
-      replace.call(element, obj);
-      rwe.updateVisualContent();
+      replace.apply(this, arguments);
+      if (typeof rwe !== 'undefined') {
+        rwe.updateVisualContent();
+      }
     };
 
     var erase = ISSUE_TEMPLATE.prototype.eraseSubjectAndDescription;
 
     ISSUE_TEMPLATE.prototype.eraseSubjectAndDescription = function() {
-      erase.call(element);
-      rwe.updateVisualContent();
+      erase.apply(this, arguments);
+      if (typeof rwe !== 'undefined') {
+        rwe.updateVisualContent();
+      }
     };
 
     var revert = ISSUE_TEMPLATE.prototype.revertAppliedTemplate;
 
     ISSUE_TEMPLATE.prototype.revertAppliedTemplate = function() {
-      revert.call(element);
-      rwe.updateVisualContent();
+      revert.apply(this, arguments);
+      if (typeof rwe !== 'undefined') {
+        rwe.updateVisualContent();
+      }
     };
   };
 
@@ -214,7 +237,6 @@ function initRedmineWysiwygEditor(element) {
   rwe.setAutocomplete('<%= escape_javascript auto_complete_issues_path %>',
                       '<%= escape_javascript editor_users_path %>');
   rwe.setTabModeSwitch(<%= (Setting.plugin_redmine_wysiwyg_editor[:visual_editor_mode_switch_tab] == '1') ? 'true' : 'false' %>);
-  rwe.setDarkMode(<%= (Setting.plugin_redmine_wysiwyg_editor[:visual_editor_dark_mode] == '1') ? 'true' : 'false' %>);
 
   var pid = <%= (@project && @project.id) ? @project.id : 'null' %> ||
       $('#issue_project_id').val();
